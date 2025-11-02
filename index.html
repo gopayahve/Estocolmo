@@ -244,7 +244,7 @@ function dropLetter(x, y, forceNow=false, targetX=null, targetY=null, dx=0, dy=0
   // Vamos a replicar:
   let angle = 0;
   if (!forceNow) {
-    angle = Math.atan2(dy, dx) + Math.PI / 2;
+    angle = Math.atan2(dy, dx) - Math.PI / 2;
   }
 
   // color HSB -> RGB-like es automático p5 con fill(hue,sat,bri)
