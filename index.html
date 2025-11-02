@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+  <title>Vida es un amor ✨</title>
+
+  <!-- p5.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #262b30; /* mismo tono oscuro que tu escena */
+      overflow: hidden;
+      touch-action: none; /* evita scroll cuando dibujas con el dedo */
+      user-select: none;
+      -webkit-user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    #hint {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,255,0.6);
+      font-weight: 300;
+      font-size: 16px;
+      text-align: center;
+      pointer-events: none;
+      transition: opacity .5s ease;
+      font-family: "Helvetica Neue", Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+<div id="hint">Dibuja con un dedo ✍️</div>
+
+<script>
+/*
+Traducción del código de Pythonista (scene) a p5.js
+
+Original:
+- Fondo oscuro
+- Mientras arrastras, suelta letras de MESSAGE en secuencia
+- Cada letra:
+    - tiene color según hue que va subiendo
+    - rota según la dirección del trazo
+    - aparece y luego se anima y desaparece
+- Chispas (Spark) alrededor del punto medio
+- Distancia mínima entre letras (SPACING)
+
+Aquí replicamos eso en navegador:
+- Funciona con mouse y touch
+- Guardamos las letras y partículas en arrays y las animamos en draw()
+- Mensaje se repite en loop
+*/
+
+///////////////////////////
+// 1. CONFIG
+///////////////////////////
+
+const MESSAGE = `Nadie nos puede decir como es
+Solo Dios y él nunca habla
+¿O sera que nadie quiere escuchar?
+La verdad es muy cruel
+Pero a veces hay que saber perder
+La verdad, me silencio
+Si te llego atrapar, no te voy a soltar
+Si te llego atrapar, nunca voy a soltar
+Porque la vida es un amor
+Yo solo vivo en el presente
+No me preocupa lo que viene
+Pues, solo me interesa estar aqui
+Tal vez me encuentres en otro lugar descansando
+Ya no me quiero esconder del desenlazo
+La verdad es muy cruel
+Pero a veces hay que saber perder
+La verdad, me silencio
+Si te llego atrapar, no te voy a soltar
+Si te llego atrapar, nunca voy a soltar
+Porque la vida es un amor
+Yo solo vivo en el presente
+No me preocupa lo que viene
+Pues, solo me interesa estar
+Porque la vida es un amor
+Yo solo vivo en presente
+No me preocupa lo que viene
+Pues, solo me interesa estar
+`;
+
+let FONT_SIZE;
+let SPACING;
+
+function setupFontMetrics() {
+  // igual que tu if de Pythonista:
+  // si pantalla grande => 60, si no => 30
+  if (min(windowWidth, windowHeight) > 750) {
+    FONT_SIZE = 60;
+  } else {
+    FONT_SIZE = 30;
+  }
+  SPACING = FONT_SIZE * 0.45;
+}
+
+///////////////////////////
+// 2. ESTADO GLOBAL
+///////////////////////////
+
+let letters = [];   // {x,y,vx,vy,life,maxLife,angle,char,scale}
+let sparks = [];    // {x,y,vx,vy,life,maxLife,size}
+let hueVal = 0;     // como self.hue
+let letterIndex = 0;
+
+let prevTouch = null; // {x,y} última posición conocida
+let drawing = false;  // si el dedo/mouse está bajado
+let hintDiv;          // para ocultar el mensajito "Dibuja con un dedo"
+
+///////////////////////////
+// 3. p5 SETUP / RESIZE
+///////////////////////////
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  colorMode(HSB, 1); // HSB de 0..1
+  textAlign(CENTER, CENTER);
+  textFont('Helvetica'); // o "Ubuntu Mono" si la tienes disponible
+  noStroke();
+  setupFontMetrics();
+
+  hintDiv = document.getElementById('hint');
+  background("#262b30");
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  setupFontMetrics();
+  // Nota: no limpiamos el background a propósito, porque queremos
+  // que lo ya dibujado (las letras activas y sparks en arrays) se siga viendo.
+  // OJO: canvas se redibuja cada frame, así que realmente se regeneran.
+}
+
+///////////////////////////
+// 4. INTERACCIÓN
+///////////////////////////
+
+function startDrawing(x, y) {
+  drawing = true;
+  prevTouch = {x, y};
+  dropLetter(x, y, true); // forzamos primera letra
+  hideHint();
+}
+
+function continueDrawing(x, y) {
+  if (!drawing || !prevTouch) return;
+  let dx = x - prevTouch.x;
+  let dy = y - prevTouch.y;
+  let distMoved = Math.sqrt(dx*dx + dy*dy);
+  if (distMoved < SPACING) {
+    return;
+  }
+
+  // punto medio entre prevTouch y actual
+  const midX = prevTouch.x + dx * 0.5;
+  const midY = prevTouch.y + dy * 0.5;
+
+  // soltar letra en la posición actual, pero que "viaje" al punto medio
+  dropLetter(x, y, false, midX, midY, dx, dy);
+
+  prevTouch = {x, y};
+}
+
+function stopDrawing() {
+  drawing = false;
+  prevTouch = null;
+}
+
+function mousePressed() {
+  startDrawing(mouseX, mouseY);
+}
+
+function mouseDragged() {
+  continueDrawing(mouseX, mouseY);
+}
+
+function mouseReleased() {
+  stopDrawing();
+}
+
+function touchStarted() {
+  // usamos el primer dedo
+  if (touches && touches.length > 0) {
+    const t = touches[0];
+    startDrawing(t.x, t.y);
+  } else {
+    startDrawing(mouseX, mouseY);
+  }
+  return false; // evita scroll
+}
+
+function touchMoved() {
+  if (touches && touches.length > 0) {
+    const t = touches[0];
+    continueDrawing(t.x, t.y);
+  } else {
+    continueDrawing(mouseX, mouseY);
+  }
+  return false;
+}
+
+function touchEnded() {
+  stopDrawing();
+  return false;
+}
+
+function hideHint() {
+  if (hintDiv) {
+    hintDiv.style.opacity = "0";
+    // no lo quitamos del DOM porque no estorba
+    hintDiv = null;
+  }
+}
+
+///////////////////////////
+// 5. CREAR LETRAS Y CHISPAS
+///////////////////////////
+
+function dropLetter(x, y, forceNow=false, targetX=null, targetY=null, dx=0, dy=0) {
+  // sacar el siguiente carácter del mensaje
+  const ch = MESSAGE[letterIndex];
+  letterIndex = (letterIndex + 1) % MESSAGE.length;
+
+  // si es espacio / salto de línea / tab => no agregues letra
+  if (!ch || ch.trim() === '') {
+    return;
+  }
+
+  // ángulo de rotación similar a:
+  // a = -math.atan2(*d) + math.pi/2
+  // en Python: atan2(dy, dx), pero él usó atan2(*d)
+  // Su a gira la letra apuntando hacia el movimiento.
+  // Vamos a replicar:
+  let angle = 0;
+  if (!forceNow) {
+    angle = -Math.atan2(dy, dx) + Math.PI / 2;
+  }
+
+  // color HSB -> RGB-like es automático p5 con fill(hue,sat,bri)
+  // hueVal va de 0..1, incrementamos 0.03 como el original
+  const h = hueVal % 1;
+  const s = 0.65;
+  const b = 1.0;
+  hueVal += 0.03;
+
+  // La letra en tu versión:
+  // - Aparece en touch.location
+  // - corrección: la animas a moverse al punto medio (letter_pos)
+  // - escala baja a 0 al final
+  // - vida ~ 1.2s movimiento + 3s wait + 0.25s fade => ~4.45s total
+  // Vamos a simular algo parecido:
+  const maxLife = 4.5; // en segundos aprox
+  const life = 0;
+
+  // velocidad inicial para moverse hacia el punto medio
+  let vx = 0;
+  let vy = 0;
+  if (!forceNow && targetX !== null && targetY !== null) {
+    const moveTime = 1.2; // como el action.move_to de 1.2s
+    vx = (targetX - x) / moveTime;
+    vy = (targetY - y) / moveTime;
+  }
+
+  letters.push({
+    char: ch,
+    x,
+    y,
+    vx,
+    vy,
+    life,
+    maxLife,
+    angle,
+    baseSize: FONT_SIZE,
+    scale: 1.0,
+    hue: h,
+    sat: s,
+    bri: b
+  });
+
+  // Crear sparks (5 chispas)
+  createSparks(targetX ?? x, targetY ?? y, h, s, b);
+}
+
+function createSparks(x, y, h, s, b) {
+  for (let i = 0; i < 5; i++) {
+    // en tu código: r = max(FONT_SIZE, 50)
+    const r = Math.max(FONT_SIZE, 50);
+    const dx = random(-r, r);
+    const dy = random(-r, r);
+
+    // Spark en Pythonista:
+    // - aparece en letter_pos
+    // - scale_to(0)
+    // - move_by(dx, dy, 0.5)
+    // - luego remove()
+    // Vida ~0.5s
+    sparks.push({
+      x,
+      y,
+      vx: dx / 0.5,
+      vy: dy / 0.5,
+      life: 0,
+      maxLife: 0.5,
+      size: random(FONT_SIZE * 0.2, FONT_SIZE * 0.5),
+      hue: h,
+      sat: s,
+      bri: b
+    });
+  }
+}
+
+///////////////////////////
+// 6. ANIMACIÓN FRAME A FRAME
+///////////////////////////
+
+// Control de tiempo para animaciones consistentes
+let lastTime = null;
+
+function draw() {
+  // fondo: no limpiamos en cada frame, porque en tu versión original
+  // la escena es persistente y los nodos viven/ mueren solos.
+  // PERO ojo: p5 redibuja todo cada frame, no acumula. Entonces:
+  // Aquí SÍ tenemos que repintar el fondo cada frame
+  // y luego volver a dibujar las letras vivas y sparks vivas.
+  // Eso emula el resultado visual (solo las cosas activas visibles).
+  background('#262b30');
+
+  const now = millis() / 1000.0;
+  if (lastTime === null) lastTime = now;
+  const dt = now - lastTime;
+  lastTime = now;
+
+  // actualizar y dibujar letras
+  updateLetters(dt);
+  // actualizar y dibujar chispas
+  updateSparks(dt);
+}
+
+function updateLetters(dt) {
+  // Vamos a:
+  // - mover durante ~1.2s hacia el punto medio
+  // - luego quedarse quietas
+  // - después de ~3s empezar a escalar a 0 en los últimos 0.25s
+  // - luego desaparecer
+
+  // Esto es parecido al action.sequence en tu code.
+  // Timings:
+  //   0    - 1.2s : moverse (vx, vy)
+  //   1.2s - 4.2s : quietas escala 1
+  //   4.2s - 4.45s: escalar a 0
+  //   >4.45s      : eliminar
+
+  const moveDuration = 1.2;
+  const waitEnd = 4.2;
+  const shrinkEnd = 4.45;
+
+  // Vamos a dibujarlas mientras estén vivas
+  for (let i = letters.length - 1; i >= 0; i--) {
+    let L = letters[i];
+    L.life += dt;
+
+    // mover mientras esté en fase de movimiento:
+    if (L.life <= moveDuration) {
+      L.x += L.vx * dt;
+      L.y += L.vy * dt;
+    }
+
+    // escalar:
+    if (L.life < waitEnd) {
+      L.scale = 1.0;
+    } else if (L.life < shrinkEnd) {
+      // va bajando de 1.0 a 0.0
+      const t = (L.life - waitEnd) / (shrinkEnd - waitEnd);
+      L.scale = 1.0 - t;
+    } else {
+      // ya murió
+      letters.splice(i, 1);
+      continue;
+    }
+
+    // dibujar letra
+    push();
+    translate(L.x, L.y);
+    rotate(L.angle);
+    scale(L.scale);
+
+    // usar HSB directo
+    fill(L.hue, L.sat, L.bri, 1); // alpha 1
+    textSize(L.baseSize);
+
+    // Para darle más glow a la letra, hacemos sombra en canvas:
+    drawingContext.shadowBlur = 30;
+    // convertir HSB->RGB para shadowColor
+    // p5 no da shadowColor directo en HSB, así que muestreamos fill() con get() mentalmente:
+    // Truco: usamos color(...) en modo HSB y luego extraemos rgb.
+    const shadowCol = color(L.hue, L.sat, L.bri, 1);
+    const sr = red(shadowCol);
+    const sg = green(shadowCol);
+    const sb = blue(shadowCol);
+    drawingContext.shadowColor = `rgba(${sr},${sg},${sb},0.9)`;
+
+    text(L.char, 0, 0);
+    pop();
+  }
+}
+
+function updateSparks(dt) {
+  // Sparks viven ~0.5s, se mueven y se escalan a 0.
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    let P = sparks[i];
+    P.life += dt;
+    if (P.life > P.maxLife) {
+      sparks.splice(i, 1);
+      continue;
+    }
+    // mover
+    P.x += P.vx * dt;
+    P.y += P.vy * dt;
+
+    // escala baja con el tiempo:
+    const t = P.life / P.maxLife; // 0..1
+    const scaleNow = 1.0 - t;     // 1 -> 0
+
+    push();
+    translate(P.x, P.y);
+    scale(scaleNow);
+
+    // dibujamos como un circulito/partícula brillante aditiva
+    const sparkCol = color(P.hue, P.sat, P.bri, 1);
+    const sr = red(sparkCol);
+    const sg = green(sparkCol);
+    const sb = blue(sparkCol);
+
+    drawingContext.shadowBlur = 20;
+    drawingContext.shadowColor = `rgba(${sr},${sg},${sb},0.8)`;
+
+    noStroke();
+    fill(P.hue, P.sat, P.bri, 1);
+    ellipse(0, 0, P.size, P.size);
+    pop();
+  }
+}
+
+</script>
+</body>
+</html>
