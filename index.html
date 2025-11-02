@@ -228,46 +228,31 @@ function hideHint() {
 ///////////////////////////
 
 function dropLetter(x, y, forceNow=false, targetX=null, targetY=null, dx=0, dy=0) {
-  // sacar el siguiente carácter del mensaje
   const ch = MESSAGE[letterIndex];
   letterIndex = (letterIndex + 1) % MESSAGE.length;
 
-  // si es espacio / salto de línea / tab => no agregues letra
   if (!ch || ch.trim() === '') {
     return;
   }
 
-  // ángulo de rotación similar a:
-  // a = -math.atan2(*d) + math.pi/2
-  // en Python: atan2(dy, dx), pero él usó atan2(*d)
-  // Su a gira la letra apuntando hacia el movimiento.
-  // Vamos a replicar:
   let angle = 0;
   if (!forceNow) {
-    angle = Math.atan2(dy, dx) - Math.PI / 2;
+    // <<< ángulo corregido >>>
+    angle = Math.atan2(dy, dx) - Math.PI / 2 + Math.PI;
   }
 
-  // color HSB -> RGB-like es automático p5 con fill(hue,sat,bri)
-  // hueVal va de 0..1, incrementamos 0.03 como el original
   const h = hueVal % 1;
   const s = 0.65;
   const b = 1.0;
   hueVal += 0.03;
 
-  // La letra en tu versión:
-  // - Aparece en touch.location
-  // - corrección: la animas a moverse al punto medio (letter_pos)
-  // - escala baja a 0 al final
-  // - vida ~ 1.2s movimiento + 3s wait + 0.25s fade => ~4.45s total
-  // Vamos a simular algo parecido:
-  const maxLife = 4.5; // en segundos aprox
+  const maxLife = 4.5;
   const life = 0;
 
-  // velocidad inicial para moverse hacia el punto medio
   let vx = 0;
   let vy = 0;
   if (!forceNow && targetX !== null && targetY !== null) {
-    const moveTime = 1.2; // como el action.move_to de 1.2s
+    const moveTime = 1.2;
     vx = (targetX - x) / moveTime;
     vy = (targetY - y) / moveTime;
   }
@@ -288,7 +273,6 @@ function dropLetter(x, y, forceNow=false, targetX=null, targetY=null, dx=0, dy=0
     bri: b
   });
 
-  // Crear sparks (5 chispas)
   createSparks(targetX ?? x, targetY ?? y, h, s, b);
 }
 
